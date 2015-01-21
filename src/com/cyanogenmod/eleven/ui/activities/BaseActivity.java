@@ -1,6 +1,8 @@
 /*
  * Copyright (C) 2012 Andrew Neal
  * Copyright (C) 2014 The CyanogenMod Project
+ * Copyright (C) 2015 The MoKee OpenSource Project
+ * Copyright (C) 2015 The SudaMod Project 
  * Licensed under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with the
  * License. You may obtain a copy of the License at
@@ -49,6 +51,8 @@ import com.cyanogenmod.eleven.utils.MusicUtils;
 import com.cyanogenmod.eleven.utils.MusicUtils.ServiceToken;
 import com.cyanogenmod.eleven.utils.NavUtils;
 import com.cyanogenmod.eleven.widgets.PlayPauseProgressButton;
+
+import com.sudamod.eleven.widgets.SleepModeDialog;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -198,6 +202,10 @@ public abstract class BaseActivity extends FragmentActivity implements ServiceCo
 
             case R.id.menu_search:
                 NavUtils.openSearch(BaseActivity.this, "");
+                return true;
+
+            case R.id.menu_sleep_mode:
+                SleepModeDialog.show(getSupportFragmentManager());
                 return true;
 
             default:
