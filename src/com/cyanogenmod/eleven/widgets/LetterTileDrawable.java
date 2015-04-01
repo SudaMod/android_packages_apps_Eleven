@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2013 The Android Open Source Project
+ * Copyright (C) 2015 The SudaMod Project  
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +37,8 @@ import com.cyanogenmod.eleven.R;
 import com.cyanogenmod.eleven.cache.ImageWorker.ImageType;
 import com.cyanogenmod.eleven.utils.BitmapWithColors;
 import com.cyanogenmod.eleven.utils.MusicUtils;
+
+import org.chinese.pinyin.PinyinHelper;
 
 /**
  * A drawable that encapsulates all the functionality needed to display a letter tile to
@@ -146,6 +149,24 @@ public class LetterTileDrawable extends Drawable {
                 sChars[1] = Character.toLowerCase(mDisplayName.charAt(1));
                 numChars = 2;
             }
+
+            // Scale text by canvas bounds and user selected scaling factor
+            sPaint.setTextSize(mScale * sLetterToTileRatio * minDimension);
+            //sPaint.setTextSize(sTileLetterFontSize);
+            sPaint.getTextBounds(sChars, 0, numChars, sRect);
+            sPaint.setColor(sTileFontColor);
+
+            // Draw the letter in the canvas, vertically shifted up or down by the user-defined
+            // offset
+            canvas.drawText(sChars, 0, numChars, bounds.centerX(),
+                    bounds.centerY() + mOffset * bounds.height() + sRect.height() / 2,
+                    sPaint);
+        } else if (mDisplayName != null
+                && PinyinHelper.matchesCheck(mDisplayName.charAt(0))) {
+            int numChars = 1;
+
+            // Draw letter or digit.
+            sChars[0] = Character.toUpperCase(mDisplayName.charAt(0));
 
             // Scale text by canvas bounds and user selected scaling factor
             sPaint.setTextSize(mScale * sLetterToTileRatio * minDimension);

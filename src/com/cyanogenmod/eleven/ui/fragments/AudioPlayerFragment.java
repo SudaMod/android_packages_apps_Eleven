@@ -74,6 +74,8 @@ import java.lang.ref.WeakReference;
 
 import static com.cyanogenmod.eleven.utils.MusicUtils.mService;
 
+import com.sudamod.eleven.widgets.SleepModeDialog;
+
 public class AudioPlayerFragment extends Fragment implements ServiceConnection,
         SlidingPanelActivity.ISlidingPanelListener {
     private static final String TAG = AudioPlayerFragment.class.getSimpleName();
@@ -685,6 +687,9 @@ public class AudioPlayerFragment extends Fragment implements ServiceConnection,
                 return true;
             case R.id.menu_clear_queue:
                 MusicUtils.clearQueue();
+                return true;
+            case R.id.menu_sleep_mode:
+                SleepModeDialog.show(getFragmentManager());
                 return true;
             default:
                 break;
