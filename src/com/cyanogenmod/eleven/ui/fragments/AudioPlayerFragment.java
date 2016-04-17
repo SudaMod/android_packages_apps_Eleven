@@ -118,9 +118,6 @@ public class AudioPlayerFragment extends Fragment implements ServiceConnection {
     // Next button
     private RepeatingImageButton mNextButton;
 
-    private BrowseButton mBrowseButton;
-    private QueueButton mQueueButton;
-
     // Album art ListView
     private ViewPager mAlbumArtViewPager;
     private LoadingEmptyContainer mQueueEmpty;
@@ -135,9 +132,6 @@ public class AudioPlayerFragment extends Fragment implements ServiceConnection {
 
     // Visualizer View
     private VisualizerView mVisualizerView;
-
-    // Equalizer Gradient
-    private View mEqualizerGradient;
 
     // Broadcast receiver
     private PlaybackStatus mPlaybackStatus;
@@ -195,8 +189,6 @@ public class AudioPlayerFragment extends Fragment implements ServiceConnection {
         mVisualizerView = (VisualizerView) mRootView.findViewById(R.id.visualizerView);
         mVisualizerView.initialize(getActivity());
         updateVisualizerPowerSaveMode();
-
-        mEqualizerGradient = mRootView.findViewById(R.id.equalizerGradient);
 
         mLyricsText = (TextView) mRootView.findViewById(R.id.audio_player_lyrics);
 
@@ -357,10 +349,6 @@ public class AudioPlayerFragment extends Fragment implements ServiceConnection {
         mRepeatButton = (RepeatButton)mRootView.findViewById(R.id.action_button_repeat);
         mPreviousButton = (RepeatingImageButton)mRootView.findViewById(R.id.action_button_previous);
         mNextButton = (RepeatingImageButton)mRootView.findViewById(R.id.action_button_next);
-        mBrowseButton = (BrowseButton)mRootView.findViewById(R.id.action_button_browse);
-        mBrowseButton.setActivity(getActivity());
-        mQueueButton = (QueueButton)mRootView.findViewById(R.id.action_button_queue);
-        mQueueButton.setActivity(getActivity());
 
         // Album art view pager
         mAlbumArtViewPager = (ViewPager)mRootView.findViewById(R.id.audio_player_album_art_viewpager);
@@ -474,16 +462,10 @@ public class AudioPlayerFragment extends Fragment implements ServiceConnection {
         if(queueSize == 0) {
             mAlbumArtViewPager.setVisibility(View.GONE);
             mQueueEmpty.showNoResults();
-            mEqualizerGradient.setVisibility(View.GONE);
             mAddToPlaylistButton.setVisibility(View.GONE);
         } else {
             mAlbumArtViewPager.setVisibility(View.VISIBLE);
             mQueueEmpty.hideAll();
-            if (PreferenceUtils.getInstance(getActivity()).getShowVisualizer()) {
-                mEqualizerGradient.setVisibility(View.VISIBLE);
-            } else {
-                mEqualizerGradient.setVisibility(View.GONE);
-            }
             mAddToPlaylistButton.setVisibility(View.VISIBLE);
         }
     }

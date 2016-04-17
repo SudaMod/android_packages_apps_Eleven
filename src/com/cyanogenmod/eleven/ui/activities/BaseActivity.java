@@ -35,6 +35,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.Toolbar;
 
 import com.cyanogenmod.eleven.IElevenService;
@@ -44,7 +45,6 @@ import com.cyanogenmod.eleven.R;
 import com.cyanogenmod.eleven.cache.ICacheListener;
 import com.cyanogenmod.eleven.cache.ImageFetcher;
 import com.cyanogenmod.eleven.utils.ApolloUtils;
-import com.cyanogenmod.eleven.utils.CustomToast;
 import com.cyanogenmod.eleven.utils.Lists;
 import com.cyanogenmod.eleven.utils.MusicUtils;
 import com.cyanogenmod.eleven.utils.MusicUtils.ServiceToken;
@@ -412,7 +412,7 @@ public abstract class BaseActivity extends FragmentActivity implements ServiceCo
                 } else if (action.equals(MusicPlaybackService.TRACK_ERROR)) {
                     final String errorMsg = context.getString(R.string.error_playing_track,
                             intent.getStringExtra(MusicPlaybackService.TrackErrorExtra.TRACK_NAME));
-                    CustomToast.makeText(baseActivity, errorMsg, CustomToast.LENGTH_SHORT).show();
+                    Toast.makeText(baseActivity, errorMsg, Toast.LENGTH_SHORT).show();
                 }
             }
         }
