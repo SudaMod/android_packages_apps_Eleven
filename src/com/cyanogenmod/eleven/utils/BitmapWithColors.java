@@ -17,6 +17,7 @@ package com.cyanogenmod.eleven.utils;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.os.Looper;
 import android.support.v7.graphics.Palette;
 import android.support.v7.graphics.Target;
 import android.util.LruCache;
@@ -55,6 +56,14 @@ public class BitmapWithColors {
             }
             return dominant;
         }
+
+        @Override
+        public String toString() {
+            return "BitmapColors[vibrant=" + Integer.toHexString(mVibrantColor)
+                    + ", vibrantDark=" + Integer.toHexString(mVibrantDarkColor)
+                    + ", vibrantLight=" + Integer.toHexString(mVibrantLightColor)
+                    + ", dominant=" + Integer.toHexString(mDominantColor) + "]";
+        }
     }
 
     private static final int CACHE_SIZE_MAX = 20;
@@ -68,6 +77,12 @@ public class BitmapWithColors {
     public BitmapWithColors(Bitmap bitmap, int bitmapKey) {
         mBitmap = bitmap;
         mBitmapKey = bitmapKey;
+
+        if (Thread.currentThread() != Looper.getMainLooper().getThread()) {
+            // we're already running in background, so do the
+            // (costly) palette initialization immediately
+            loadColorsIfNeeded();
+        }
     }
 
     public BitmapWithColors(Bitmap bitmap, int bitmapKey, int vibrantColor, int vibrantDarkColor) {
@@ -161,12 +176,7 @@ public class BitmapWithColors {
             return;
         }
 
-        final Palette p = Palette.from(mBitmap)
-                .clearTargets()
-                .addTarget(Target.VIBRANT)
-                .addTarget(Target.LIGHT_VIBRANT)
-                .addTarget(Target.DARK_VIBRANT)
-                .generate();
+        final Palette p = Palette.from(mBitmap).generate();
         if (p == null) {
             return;
         }
@@ -175,5 +185,10 @@ public class BitmapWithColors {
         synchronized (sCachedColors) {
             sCachedColors.put(mBitmapKey, mColors);
         }
+    }
+
+    @Override
+    public String toString() {
+        return "BitmapWithColors[key=" + mBitmapKey + ", colors=" + mColors + "]";
     }
 }
