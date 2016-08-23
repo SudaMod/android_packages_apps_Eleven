@@ -14,6 +14,7 @@
 
 package com.cyanogenmod.eleven;
 
+import android.annotation.NonNull;
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
 import android.app.Notification;
@@ -54,6 +55,7 @@ import android.provider.MediaStore.Audio.AlbumColumns;
 import android.provider.MediaStore.Audio.AudioColumns;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import com.cyanogenmod.eleven.Config.IdType;
 import com.cyanogenmod.eleven.appwidgets.AppWidgetLarge;
@@ -189,6 +191,8 @@ public class MusicPlaybackService extends Service {
 
     public static final String FROM_MEDIA_BUTTON = "frommediabutton";
 
+    public static final String TIMESTAMP = "timestamp";
+
     /**
      * Used to easily notify a list that it should refresh. i.e. A playlist
      * changes
@@ -224,7 +228,7 @@ public class MusicPlaybackService extends Service {
 
     public static final String CMDNEXT = "next";
 
-    public static final String CMDNOTIF = "buttonId";
+    public static final String CMDHEADSETHOOK = "headsethook";
 
     private static final int IDCOLIDX = 0;
 
@@ -302,6 +306,16 @@ public class MusicPlaybackService extends Service {
      * Notifies that there is a new timed text string
      */
     private static final int LYRICS = 7;
+
+    /**
+     * Indicates a headset hook key event
+     */
+    private static final int HEADSET_HOOK_EVENT = 8;
+
+    /**
+     * Indicates waiting for another headset hook event has timed out
+     */
+    private static final int HEADSET_HOOK_MULTI_CLICK_TIMEOUT = 9;
 
     /**
      * Idle time before stopping the foreground notfication (5 minutes)
@@ -521,6 +535,8 @@ public class MusicPlaybackService extends Service {
      */
     private boolean mShowAlbumArtOnLockscreen;
 
+    private PowerManager.WakeLock mHeadsetHookWakeLock;
+
     private ShakeDetector.Listener mShakeDetectorListener=new ShakeDetector.Listener() {
 
         @Override
@@ -704,6 +720,19 @@ public class MusicPlaybackService extends Service {
                 seek(0);
                 releaseServiceUiAndStop();
             }
+            @Override
+            public boolean onMediaButtonEvent(@NonNull Intent mediaButtonIntent) {
+                if (Intent.ACTION_MEDIA_BUTTON.equals(mediaButtonIntent.getAction())) {
+                    KeyEvent ke = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                    if (ke != null && ke.getKeyCode() == KeyEvent.KEYCODE_HEADSETHOOK) {
+                        if (ke.getAction() == KeyEvent.ACTION_UP) {
+                            handleHeadsetHookClick(ke.getEventTime());
+                        }
+                        return true;
+                    }
+                }
+                return super.onMediaButtonEvent(mediaButtonIntent);
+            }
         });
 
         PendingIntent pi = PendingIntent.getBroadcast(this, 0,
@@ -823,12 +852,7 @@ public class MusicPlaybackService extends Service {
                 || PREVIOUS_FORCE_ACTION.equals(action)) {
             prev(PREVIOUS_FORCE_ACTION.equals(action));
         } else if (CMDTOGGLEPAUSE.equals(command) || TOGGLEPAUSE_ACTION.equals(action)) {
-            if (isPlaying()) {
-                pause();
-                mPausedByTransientLossOfFocus = false;
-            } else {
-                play();
-            }
+            togglePlayPause();
         } else if (CMDPAUSE.equals(command) || PAUSE_ACTION.equals(action)) {
             pause();
             mPausedByTransientLossOfFocus = false;
@@ -849,7 +873,24 @@ public class MusicPlaybackService extends Service {
             cycleRepeat();
         } else if (SHUFFLE_ACTION.equals(action)) {
             cycleShuffle();
+        } else if (CMDHEADSETHOOK.equals(command)) {
+            long timestamp = intent.getLongExtra(TIMESTAMP, 0);
+            handleHeadsetHookClick(timestamp);
         }
+    }
+
+    private void handleHeadsetHookClick(long timestamp) {
+        if (mHeadsetHookWakeLock == null) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            mHeadsetHookWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                    "Eleven headset button");
+            mHeadsetHookWakeLock.setReferenceCounted(false);
+        }
+        // Make sure we don't indefinitely hold the wake lock under any circumstances
+        mHeadsetHookWakeLock.acquire(10000);
+
+        Message msg = mPlayerHandler.obtainMessage(HEADSET_HOOK_EVENT, Long.valueOf(timestamp));
+        msg.sendToTarget();
     }
 
     /**
@@ -2447,6 +2488,15 @@ public class MusicPlaybackService extends Service {
         }
     }
 
+    private void togglePlayPause() {
+        if (isPlaying()) {
+            pause();
+            mPausedByTransientLossOfFocus = false;
+        } else {
+            play();
+        }
+    }
+
     /**
      * Temporarily pauses playback.
      */
@@ -2900,6 +2950,9 @@ public class MusicPlaybackService extends Service {
         private final WeakReference<MusicPlaybackService> mService;
         private float mCurrentVolume = 1.0f;
 
+        private static final int DOUBLE_CLICK_TIMEOUT = 800;
+        private int mHeadsetHookClickCounter = 0;
+
         /**
          * Constructor of <code>MusicPlayerHandler</code>
          *
@@ -3005,6 +3058,31 @@ public class MusicPlaybackService extends Service {
                                 break;
                             default:
                         }
+                        break;
+                    case HEADSET_HOOK_EVENT: {
+                        long eventTime = (Long) msg.obj;
+
+                        mHeadsetHookClickCounter = Math.min(mHeadsetHookClickCounter + 1, 3);
+                        if (D) Log.d(TAG, "Got headset click, count = " + mHeadsetHookClickCounter);
+                        removeMessages(HEADSET_HOOK_MULTI_CLICK_TIMEOUT);
+
+                        if (mHeadsetHookClickCounter == 3) {
+                            sendEmptyMessage(HEADSET_HOOK_MULTI_CLICK_TIMEOUT);
+                        } else {
+                            sendEmptyMessageAtTime(HEADSET_HOOK_MULTI_CLICK_TIMEOUT,
+                                    eventTime + DOUBLE_CLICK_TIMEOUT);
+                        }
+                        break;
+                    }
+                    case HEADSET_HOOK_MULTI_CLICK_TIMEOUT:
+                        if (D) Log.d(TAG, "Handling headset click");
+                        switch (mHeadsetHookClickCounter) {
+                            case 1: service.togglePlayPause(); break;
+                            case 2: service.gotoNext(true); break;
+                            case 3: service.prev(false); break;
+                        }
+                        mHeadsetHookClickCounter = 0;
+                        service.mHeadsetHookWakeLock.release();
                         break;
                     default:
                         break;
