@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2012 Andrew Neal
- * Copyright (C) 2014 The CyanogenMod Project
  * Copyright (C) 2015 The SudaMod Project  
+ * Copyright (C) 2014-2016 The CyanogenMod Project
  * Licensed under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with the
  * License. You may obtain a copy of the License at
@@ -29,8 +29,8 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.database.MatrixCursor;
@@ -38,12 +38,14 @@ import android.graphics.Bitmap;
 import android.hardware.SensorManager;
 import android.media.AudioManager;
 import android.media.AudioManager.OnAudioFocusChangeListener;
+import android.media.MediaDescription;
 import android.media.MediaMetadata;
 import android.media.MediaPlayer;
 import android.media.audiofx.AudioEffect;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -71,6 +73,7 @@ import com.cyanogenmod.eleven.provider.SongPlayCount;
 import com.cyanogenmod.eleven.service.MusicPlaybackTrack;
 import com.cyanogenmod.eleven.utils.BitmapWithColors;
 import com.cyanogenmod.eleven.utils.Lists;
+import com.cyanogenmod.eleven.utils.PreferenceUtils;
 import com.cyanogenmod.eleven.utils.ShakeDetector;
 import com.cyanogenmod.eleven.utils.SrtManager;
 
@@ -78,7 +81,9 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.ListIterator;
 import java.util.Random;
 import java.util.TreeSet;
@@ -507,6 +512,8 @@ public class MusicPlaybackService extends Service {
     private String mCachedKey;
     private BitmapWithColors[] mCachedBitmapWithColors = new BitmapWithColors[2];
 
+    private QueueUpdateTask mQueueUpdateTask;
+
     /**
      * Image cache
      */
@@ -659,6 +666,10 @@ public class MusicPlaybackService extends Service {
         mPreferences = getSharedPreferences("Service", 0);
         mCardId = getCardId();
 
+        mShowAlbumArtOnLockscreen = mPreferences.getBoolean(
+                PreferenceUtils.SHOW_ALBUM_ART_ON_LOCKSCREEN, true);
+        setShakeToPlayEnabled(mPreferences.getBoolean(PreferenceUtils.SHAKE_TO_PLAY, false));
+
         registerExternalStorageListener();
 
         // Initialize the media player
@@ -733,6 +744,10 @@ public class MusicPlaybackService extends Service {
                 mPausedByTransientLossOfFocus = false;
                 seek(0);
                 releaseServiceUiAndStop();
+            }
+            @Override
+            public void onSkipToQueueItem(long id) {
+                setQueueItem(id);
             }
             @Override
             public boolean onMediaButtonEvent(@NonNull Intent mediaButtonIntent) {
@@ -1574,6 +1589,7 @@ public class MusicPlaybackService extends Service {
         if (what.equals(PLAYSTATE_CHANGED) || what.equals(POSITION_CHANGED)) {
             mSession.setPlaybackState(new PlaybackState.Builder()
                     .setActions(playBackStateActions)
+                    .setActiveQueueItemId(getAudioId())
                     .setState(playState, position(), 1.0f).build());
         } else if (what.equals(META_CHANGED) || what.equals(QUEUE_CHANGED)) {
             Bitmap albumArt = getAlbumArt(false).getBitmap();
@@ -1600,10 +1616,23 @@ public class MusicPlaybackService extends Service {
                             mShowAlbumArtOnLockscreen ? albumArt : null)
                     .build());
 
+            if (what.equals(QUEUE_CHANGED)) {
+                updateMediaSessionQueue();
+            }
+
             mSession.setPlaybackState(new PlaybackState.Builder()
                     .setActions(playBackStateActions)
+                    .setActiveQueueItemId(getAudioId())
                     .setState(playState, position(), 1.0f).build());
         }
+    }
+
+    private synchronized void updateMediaSessionQueue() {
+        if (mQueueUpdateTask != null) {
+            mQueueUpdateTask.cancel(true);
+        }
+        mQueueUpdateTask = new QueueUpdateTask(getQueue());
+        mQueueUpdateTask.execute();
     }
 
     private Notification buildNotification() {
@@ -2521,6 +2550,7 @@ public class MusicPlaybackService extends Service {
      * Temporarily pauses playback.
      */
     public void pause() {
+        if (mPlayerHandler == null) return;
         if (D) Log.d(TAG, "Pausing playback");
         synchronized (this) {
             mPlayerHandler.removeMessages(FADEUP);
@@ -2743,6 +2773,18 @@ public class MusicPlaybackService extends Service {
             notifyChange(META_CHANGED);
             if (mShuffleMode == SHUFFLE_AUTO) {
                 doAutoShuffleUpdate();
+            }
+        }
+    }
+
+    private void setQueueItem(final long id) {
+        synchronized (this) {
+            final int len = mPlaylist.size();
+            for (int i = 0; i < len; i++) {
+                if (id == mPlaylist.get(i).mId) {
+                    setQueuePosition(i);
+                    break;
+                }
             }
         }
     }
@@ -3860,4 +3902,70 @@ public class MusicPlaybackService extends Service {
 
     }
 
+    private class QueueUpdateTask extends AsyncTask<Void, Void, List<MediaSession.QueueItem>> {
+        private long[] mQueue;
+
+        public QueueUpdateTask(long[] queue) {
+            mQueue = queue;
+        }
+
+        @Override
+        protected List<MediaSession.QueueItem> doInBackground(Void... params) {
+            if (mQueue == null || mQueue.length == 0) {
+                return null;
+            }
+
+            final StringBuilder selection = new StringBuilder();
+            selection.append(MediaStore.Audio.Media._ID).append(" IN (");
+            for (int i = 0; i < mQueue.length; i++) {
+                if (i != 0) {
+                    selection.append(",");
+                }
+                selection.append(mQueue[i]);
+            }
+            selection.append(")");
+
+            Cursor c = getContentResolver().query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    new String[] { AudioColumns._ID, AudioColumns.TITLE, AudioColumns.ARTIST },
+                    selection.toString(), null, null);
+            if (c == null) {
+                return null;
+            }
+
+            try {
+                final MediaSession.QueueItem[] items = new MediaSession.QueueItem[mQueue.length];
+                final int idColumnIndex = c.getColumnIndexOrThrow(AudioColumns._ID);
+                final int titleColumnIndex = c.getColumnIndexOrThrow(AudioColumns.TITLE);
+                final int artistColumnIndex = c.getColumnIndexOrThrow(AudioColumns.ARTIST);
+
+                while (c.moveToNext() && !isCancelled()) {
+                    final MediaDescription desc = new MediaDescription.Builder()
+                            .setTitle(c.getString(titleColumnIndex))
+                            .setSubtitle(c.getString(artistColumnIndex))
+                            .build();
+
+                    final long id = c.getLong(idColumnIndex);
+                    int index = 0;
+                    for (int i = 0; i < mQueue.length; i++) {
+                        if (mQueue[i] == id) {
+                            index = i;
+                            break;
+                        }
+                    }
+                    items[index] = new MediaSession.QueueItem(desc, id);
+                }
+                return Arrays.asList(items);
+            } finally {
+                c.close();
+            }
+        }
+
+        @Override
+        protected void onPostExecute(List<MediaSession.QueueItem> items) {
+            if (!isCancelled()) {
+                mSession.setQueue(items);
+            }
+        }
+    }
 }
