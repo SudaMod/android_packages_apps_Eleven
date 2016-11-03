@@ -59,6 +59,7 @@ import android.provider.MediaStore.Audio.AlbumColumns;
 import android.provider.MediaStore.Audio.AudioColumns;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.LongSparseArray;
 import android.view.KeyEvent;
 
 import com.cyanogenmod.eleven.Config.IdType;
@@ -747,7 +748,7 @@ public class MusicPlaybackService extends Service {
             }
             @Override
             public void onSkipToQueueItem(long id) {
-                setQueueItem(id);
+                setQueuePosition((int) id);
             }
             @Override
             public boolean onMediaButtonEvent(@NonNull Intent mediaButtonIntent) {
@@ -2777,18 +2778,6 @@ public class MusicPlaybackService extends Service {
         }
     }
 
-    private void setQueueItem(final long id) {
-        synchronized (this) {
-            final int len = mPlaylist.size();
-            for (int i = 0; i < len; i++) {
-                if (id == mPlaylist.get(i).mId) {
-                    setQueuePosition(i);
-                    break;
-                }
-            }
-        }
-    }
-
     /**
      * Queues a new list for playback
      *
@@ -3906,7 +3895,7 @@ public class MusicPlaybackService extends Service {
         private long[] mQueue;
 
         public QueueUpdateTask(long[] queue) {
-            mQueue = queue;
+            mQueue = queue != null ? Arrays.copyOf(queue, queue.length) : null;
         }
 
         @Override
@@ -3934,7 +3923,7 @@ public class MusicPlaybackService extends Service {
             }
 
             try {
-                final MediaSession.QueueItem[] items = new MediaSession.QueueItem[mQueue.length];
+                LongSparseArray<MediaDescription> descsById = new LongSparseArray<>();
                 final int idColumnIndex = c.getColumnIndexOrThrow(AudioColumns._ID);
                 final int titleColumnIndex = c.getColumnIndexOrThrow(AudioColumns.TITLE);
                 final int artistColumnIndex = c.getColumnIndexOrThrow(AudioColumns.ARTIST);
@@ -3944,18 +3933,21 @@ public class MusicPlaybackService extends Service {
                             .setTitle(c.getString(titleColumnIndex))
                             .setSubtitle(c.getString(artistColumnIndex))
                             .build();
-
                     final long id = c.getLong(idColumnIndex);
-                    int index = 0;
-                    for (int i = 0; i < mQueue.length; i++) {
-                        if (mQueue[i] == id) {
-                            index = i;
-                            break;
-                        }
-                    }
-                    items[index] = new MediaSession.QueueItem(desc, id);
+                    descsById.put(id, desc);
                 }
-                return Arrays.asList(items);
+
+                List<MediaSession.QueueItem> items = new ArrayList<>();
+                for (int i = 0; i < mQueue.length; i++) {
+                    MediaDescription desc = descsById.get(mQueue[i]);
+                    if (desc == null) {
+                        // shouldn't happen except in corner cases like
+                        // music being deleted while we were processing
+                        desc = new MediaDescription.Builder().build();
+                    }
+                    items.add(new MediaSession.QueueItem(desc, i));
+                }
+                return items;
             } finally {
                 c.close();
             }
